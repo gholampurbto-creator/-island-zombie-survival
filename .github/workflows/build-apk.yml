@@ -22,10 +22,8 @@ jobs:
           curl -fL --retry 3 -o source.zip "https://raw.githubusercontent.com/gholampurbto-creator/-island-zombie-survival/main/Island-Zombie-Survival-Android-Source.zip"
           unzip -q source.zip -d source
 
-      - name: Locate project folder
-        run: |
-          echo "PROJECT_DIR=$GITHUB_WORKSPACE/source/zombie_apk_work" >> "$GITHUB_ENV"
-          test -f source/zombie_apk_work/package.json
+      - name: Verify project
+        run: test -f source/zombie_apk_work/package.json
 
       - name: Set up Node
         uses: actions/setup-node@v4
@@ -40,8 +38,10 @@ jobs:
           distribution: temurin
           java-version: 17
 
-      - name: Set up Android SDK
-        uses: android-actions/setup-android@v3
+      - name: Install Android SDK packages
+        run: |
+          echo "ANDROID_HOME=$ANDROID_HOME"
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --install "platform-tools" "platforms;android-35" "build-tools;35.0.0"
 
       - name: Install npm dependencies
         working-directory: source/zombie_apk_work
