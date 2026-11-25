@@ -1,0 +1,104 @@
+name: Build Windows EXE
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - "Island-Zombie-Survival-Android-Source.zip"
+      - ".github/workflows/build-windows.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Extract source
+        shell: pwsh
+        run: |
+          Expand-Archive -Path "Island-Zombie-Survival-Android-Source.zip" -DestinationPath source
+          if (!(Test-Path "source/zombie_apk_work/package.json")) { throw "Project package.json not found" }
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install project dependencies
+        working-directory: source/zombie_apk_work
+        run: npm install
+
+      - name: Build game
+        working-directory: source/zombie_apk_work
+        run: npm run build
+
+      - name: Prepare Electron desktop wrapper
+        working-directory: source/zombie_apk_work
+        shell: pwsh
+        run: |
+          npm install --save-dev electron electron-builder
+          npm pkg set main="electron/main.cjs"
+          New-Item -ItemType Directory -Force electron | Out-Null
+          @'
+          const { app, BrowserWindow, shell } = require('electron');
+          const path = require('path');
+
+          function createWindow() {
+            const win = new BrowserWindow({
+              width: 1280,
+              height: 720,
+              minWidth: 900,
+              minHeight: 600,
+              title: 'Island Zombie Survival',
+              backgroundColor: '#10131b',
+              autoHideMenuBar: true,
+              webPreferences: {
+                contextIsolation: true,
+                nodeIntegration: false,
+                sandbox: true
+              }
+            });
+            win.loadFile(path.join(__dirname, '..', 'dist', 'index.html'));
+            win.webContents.setWindowOpenHandler(({ url }) => {
+              if (url.startsWith('http:') || url.startsWith('https:')) shell.openExternal(url);
+              return { action: 'deny' };
+            });
+          }
+
+          app.whenReady().then(() => {
+            createWindow();
+            app.on('activate', () => {
+              if (BrowserWindow.getAllWindows().length === 0) createWindow();
+            });
+          });
+          app.on('window-all-closed', () => {
+            if (process.platform !== 'darwin') app.quit();
+          });
+          '@ | Set-Content -Encoding UTF8 electron/main.cjs
+          @'
+          {
+            "appId": "com.islandzombiesurvival.desktop",
+            "productName": "Island Zombie Survival",
+            "directories": { "output": "desktop-dist" },
+            "files": ["electron/main.cjs", "dist/**/*", "package.json"],
+            "asar": true,
+            "win": { "target": ["portable"], "artifactName": "Island-Zombie-Survival-Setup-Portable.exe" }
+          }
+          '@ | Set-Content -Encoding UTF8 electron-builder.json
+          npm pkg set scripts.desktop:build="electron-builder --win portable --x64 --config electron-builder.json"
+
+      - name: Build portable EXE
+        working-directory: source/zombie_apk_work
+        run: npm run desktop:build
+
+      - name: Upload EXE
+        uses: actions/upload-artifact@v4
+        with:
+          name: Island-Zombie-Survival-Windows-EXE
+          path: source/zombie_apk_work/desktop-dist/*.exe
+          if-no-files-found: error
+          retention-days: 14
