@@ -69,3 +69,83 @@ jobs:
           path: source/zombie_apk_work/android/app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
           retention-days: 14
+
+  build-windows:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Download project source ZIP
+        shell: pwsh
+        run: |
+          Invoke-WebRequest -Uri "https://raw.githubusercontent.com/gholampurbto-creator/-island-zombie-survival/main/Island-Zombie-Survival-Android-Source.zip" -OutFile source.zip
+          Expand-Archive source.zip -DestinationPath source
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install dependencies and Electron packaging tools
+        working-directory: source/zombie_apk_work
+        run: |
+          npm install
+          npm install --save-dev electron electron-builder
+
+      - name: Create Electron entry
+        working-directory: source/zombie_apk_work
+        shell: pwsh
+        run: |
+          @'
+          import { app, BrowserWindow } from 'electron';
+          import path from 'node:path';
+          import { fileURLToPath } from 'node:url';
+
+          const __dirname = path.dirname(fileURLToPath(import.meta.url));
+          function createWindow() {
+            const win = new BrowserWindow({
+              width: 1280,
+              height: 800,
+              minWidth: 900,
+              minHeight: 600,
+              backgroundColor: '#101820',
+              autoHideMenuBar: true,
+              title: 'Island Zombie Survival',
+              webPreferences: {
+                contextIsolation: true,
+                nodeIntegration: false,
+                sandbox: true
+              }
+            });
+            win.maximize();
+            win.loadFile(path.join(__dirname, 'dist', 'index.html'));
+          }
+          app.whenReady().then(() => {
+            createWindow();
+            app.on('activate', () => {
+              if (BrowserWindow.getAllWindows().length === 0) createWindow();
+            });
+          });
+          app.on('window-all-closed', () => {
+            if (process.platform !== 'darwin') app.quit();
+          });
+          '@ | Set-Content -Encoding UTF8 electron-main.mjs
+
+          node -e "const fs=require('fs');const p=require('./package.json');p.main='electron-main.mjs';p.scripts=p.scripts||{};p.scripts['desktop:build']='npm run build && electron-builder --win portable --x64';p.build={appId:'com.islandzombiesurvival.desktop',productName:'Island Zombie Survival',directories:{output:'release'},files:['dist/**/*','electron-main.mjs','package.json'],win:{target:[{target:'portable',arch:['x64']}],artifactName:'Island-Zombie-Survival-Windows.exe'}};fs.writeFileSync('package.json',JSON.stringify(p,null,2));"
+
+      - name: Build web app
+        working-directory: source/zombie_apk_work
+        run: npm run build
+
+      - name: Package portable Windows EXE
+        working-directory: source/zombie_apk_work
+        run: npx electron-builder --win portable --x64
+
+      - name: Upload Windows EXE
+        uses: actions/upload-artifact@v4
+        with:
+          name: Island-Zombie-Survival-Windows-EXE
+          path: source/zombie_apk_work/release/*.exe
+          if-no-files-found: error
+          retention-days: 14
